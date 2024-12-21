@@ -10,13 +10,13 @@ use sdl2::{
     video::WindowContext,
     EventPump,
 };
+const SCREEN_DIMENSIONS: (i32, i32) = (1920, 1080);
 
 struct Car {
     pub dimensions: Vector2<f64>,
     pub pos: Point2<f64>,
     pub rotation: Rotation2<f64>,
     velocity: Vector2<f64>,
-    max_speed: f64,
 }
 
 struct Camera {
@@ -29,8 +29,18 @@ impl Camera {
             pos: Point2::new(1000., 700.),
         }
     }
+
     pub fn rect(&self) -> Rect {
         Rect::new(self.pos.x as i32, self.pos.y as i32, 10, 10)
+    }
+
+    pub fn relative_rect(&self, rect: Rect) -> Rect {
+        Rect::new(
+            rect.x - (self.pos.x as i32 - SCREEN_DIMENSIONS.0 / 2),
+            rect.y - (self.pos.y as i32 - SCREEN_DIMENSIONS.1 / 2),
+            rect.width(),
+            rect.height(),
+        )
     }
 }
 
@@ -41,7 +51,6 @@ impl Car {
             pos: Point2::new(1000., 700.),
             rotation: Rotation2::new(0.),
             velocity: Vector2::zeros(),
-            max_speed: 50.,
         }
     }
 
@@ -81,7 +90,7 @@ impl Level {
         }
     }
 
-    fn draw_checkerboard<T: RenderTarget>(canvas: &mut Canvas<T>) {
+    fn draw_checkerboard<T: RenderTarget>(&self, canvas: &mut Canvas<T>) {
         let square_size: u32 = 125;
         let (width, height) = canvas.output_size().unwrap();
 
@@ -93,7 +102,12 @@ impl Level {
                     Color::RGB(60, 200, 35)
                 });
                 canvas
-                    .fill_rect(Rect::new(x as i32, y as i32, square_size, square_size))
+                    .fill_rect(self.camera.relative_rect(Rect::new(
+                        x as i32,
+                        y as i32,
+                        square_size,
+                        square_size,
+                    )))
                     .unwrap();
             })
         })
@@ -135,7 +149,7 @@ impl Scene for Level {
             self.car.rotation *= Rotation2::new(0.1);
         }
 
-        let friction_coefficient = 0.01;
+        let friction_coefficient = 0.02;
         let friction_force = -self.car.velocity * friction_coefficient;
 
         self.car.velocity += friction_force;
@@ -164,9 +178,9 @@ impl Scene for Level {
         canvas: &mut Canvas<T>,
         texture_creator: &TextureCreator<WindowContext>,
     ) {
-        // canvas.set_draw_color(Color::GREY);
-        // canvas.clear();
-        Level::draw_checkerboard(canvas);
+        canvas.set_draw_color(Color::GREY);
+        canvas.clear();
+        self.draw_checkerboard(canvas);
 
         let mut car_texture = texture_creator
             .create_texture_target(None, self.car.rect().width(), self.car.rect().height())
@@ -179,20 +193,21 @@ impl Scene for Level {
             .unwrap();
 
         canvas.set_draw_color(Color::RED);
+        // let mut car_rect = self.car.rect();
+        // car_rect.reposition(self.camera.relative_rect(car_rect.top_left()));
         canvas
             .copy_ex(
                 &car_texture,
                 None,
-                Some(self.car.rect()),
+                // Some(self.car.rect()),
+                Some(self.camera.relative_rect(self.car.rect())),
                 self.car.rotation.angle() * 180. / std::f64::consts::PI,
+                // Some(self.camera.relative_rect(self.car.rect()).top_left()),
                 None,
                 false,
                 false,
             )
             .unwrap();
-
-        canvas.set_draw_color(Color::BLACK);
-        canvas.fill_rect(self.camera.rect()).unwrap();
     }
 }
 
@@ -201,7 +216,7 @@ fn main() {
     let video_subsystem = sdl_context.video().unwrap();
 
     let window = video_subsystem
-        .window("Sdl2 test", 1920, 1080)
+        .window("Sdl2 test", 2550, 1440)
         .build()
         .unwrap();
 
@@ -210,7 +225,7 @@ fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     let mut level = Level::new();
-    'running: loop {
+    loop {
         let mut texture = texture_creator
             .create_texture_target(None, 1920, 1080)
             .unwrap();
