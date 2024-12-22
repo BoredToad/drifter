@@ -129,10 +129,6 @@ impl Scene for Level {
 
         let key_state = events.keyboard_state();
 
-        if key_state.is_scancode_pressed(Scancode::E) {
-            self.car.rotation *= Rotation2::new(0.1);
-        }
-
         if key_state.is_scancode_pressed(Scancode::W) {
             self.car.velocity += self.car.rotation * Vector2::new(0., -1.)
         }
@@ -142,11 +138,13 @@ impl Scene for Level {
             let brake_force = 0.5;
             self.car.velocity += -self.car.velocity.normalize() * brake_force;
         }
+
+        let rotation_strength = (self.car.rotation * self.car.velocity).magnitude().abs();
         if key_state.is_scancode_pressed(Scancode::A) {
-            self.car.rotation *= Rotation2::new(-0.1);
+            self.car.rotation *= Rotation2::new(-0.005 * rotation_strength);
         }
         if key_state.is_scancode_pressed(Scancode::D) {
-            self.car.rotation *= Rotation2::new(0.1);
+            self.car.rotation *= Rotation2::new(0.005 * rotation_strength);
         }
 
         let friction_coefficient = 0.02;
