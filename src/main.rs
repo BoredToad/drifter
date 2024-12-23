@@ -13,10 +13,14 @@ use sdl2::{
 const SCREEN_DIMENSIONS: (i32, i32) = (1920, 1080);
 
 struct Car {
-    pub dimensions: Vector2<f64>,
-    pub pos: Point2<f64>,
-    pub rotation: Rotation2<f64>,
+    dimensions: Vector2<f64>,
+    pos: Point2<f64>,
+    rotation: Rotation2<f64>,
     velocity: Vector2<f64>,
+
+    wheel_speed: f64,
+    acceleration: f64,
+    max_speed: f64,
 }
 
 struct Camera {
@@ -51,11 +55,15 @@ impl Car {
             pos: Point2::new(1000., 700.),
             rotation: Rotation2::new(0.),
             velocity: Vector2::zeros(),
+
+            wheel_speed: 0.,
+            max_speed: 1.,
+            acceleration: 0.1,
         }
     }
 
     pub fn center(&self) -> Point2<f64> {
-        self.pos + self.dimensions.scale(0.5)
+        self.pos + self.dimensions / 2.
     }
 
     pub fn rect(&self) -> Rect {
@@ -129,16 +137,26 @@ impl Scene for Level {
 
         let key_state = events.keyboard_state();
 
+        let mut accelerating = false;
         if key_state.is_scancode_pressed(Scancode::W) {
-            self.car.velocity += self.car.rotation * Vector2::new(0., -1.)
-        }
-        if key_state.is_scancode_pressed(Scancode::S) {
+            self.car.wheel_speed += self.car.acceleration;
+            let max_backwards_speed = -5.;
+            self.car.wheel_speed = self
+                .car
+                .wheel_speed
+                .clamp(max_backwards_speed, self.car.max_speed);
+            accelerating = true;
+        } else if key_state.is_scancode_pressed(Scancode::S) {
             // only gonna implement brake for now, but will also need to detect when to go into
             // reverse some time
-            let brake_force = 0.5;
-            self.car.velocity += -self.car.velocity.normalize() * brake_force;
+            // let brake_force = 0.5;
+            // self.car.velocity += -self.car.velocity.normalize() * brake_force;
+            self.car.wheel_speed *= 0.5;
+            if self.car.wheel_speed < 0.1 {
+                self.car.wheel_speed = 0.;
+            }
         }
-
+        self.car.pos -= self.car.dimensions / 2.; // to center the rotation
         let rotation_strength = (self.car.rotation * self.car.velocity).magnitude().abs();
         if key_state.is_scancode_pressed(Scancode::A) {
             self.car.rotation *= Rotation2::new(-0.005 * rotation_strength);
@@ -146,21 +164,27 @@ impl Scene for Level {
         if key_state.is_scancode_pressed(Scancode::D) {
             self.car.rotation *= Rotation2::new(0.005 * rotation_strength);
         }
+        self.car.pos += self.car.dimensions / 2.; // to bring the car back to where it should be
 
-        let friction_coefficient = 0.02;
-        let friction_force = -self.car.velocity * friction_coefficient;
+        // friction
+        let mut local_velocity = self.car.rotation.inverse() * self.car.velocity;
 
-        self.car.velocity += friction_force;
-        if self.car.velocity.magnitude() < 0.01 {
-            self.car.velocity = Vector2::zeros();
+        let vertical_friction = 0.02;
+        local_velocity.y -= self.car.wheel_speed;
+
+        if !accelerating {
+            self.car.wheel_speed *= 0.98 - vertical_friction;
         }
+        local_velocity.y *= 1. - vertical_friction;
 
+        let horizontal_friction = 0.05;
+        local_velocity.x *= 1.0 - horizontal_friction;
+
+        self.car.velocity = self.car.rotation * local_velocity;
         self.car.pos += self.car.velocity;
 
         // CAMERA
 
-        // self.camera.velocity = self.camera.velocity.slerp(&self.car.pos.coords, 1.0);
-        // self.camera.pos = self.camera.velocity;
         self.camera.pos = self
             .camera
             .pos
