@@ -34,10 +34,6 @@ impl Camera {
         }
     }
 
-    pub fn rect(&self) -> Rect {
-        Rect::new(self.pos.x as i32, self.pos.y as i32, 10, 10)
-    }
-
     pub fn relative_rect(&self, rect: Rect) -> Rect {
         Rect::new(
             rect.x - (self.pos.x as i32 - SCREEN_DIMENSIONS.0 / 2),
@@ -46,6 +42,22 @@ impl Camera {
             rect.height(),
         )
     }
+
+    fn update(&mut self, car: &Car) {
+        self.pos = self.pos.coords.lerp(&car.center().coords, 0.2).into();
+    }
+}
+
+enum CarSteering {
+    Left,
+    Right,
+    None,
+}
+
+enum CarPedal {
+    Forward,
+    Backward,
+    None,
 }
 
 impl Car {
@@ -73,6 +85,47 @@ impl Car {
             self.dimensions.x as u32,
             self.dimensions.y as u32,
         )
+    }
+
+    fn update(&mut self, pedal: CarPedal, steering: CarSteering) {
+        if let CarPedal::Forward = pedal {
+            self.wheel_speed += self.acceleration;
+            let max_backwards_speed = -5.;
+            self.wheel_speed = self.wheel_speed.clamp(max_backwards_speed, self.max_speed);
+        } else if let CarPedal::Backward = pedal {
+            // only gonna implement brake for now, but will also need to detect when to go into
+            // reverse some time
+            // let brake_force = 0.5;
+            // self.velocity += -self.velocity.normalize() * brake_force;
+            self.wheel_speed *= 0.5;
+            if self.wheel_speed < 0.1 {
+                self.wheel_speed = 0.;
+            }
+        }
+
+        self.pos -= self.dimensions / 2.; // to center the rotation
+        let rotation_strength = (self.rotation * self.velocity).magnitude().abs();
+        if let CarSteering::Left = steering {
+            self.rotation *= Rotation2::new(-0.005 * rotation_strength);
+        } else if let CarSteering::Right = steering {
+            self.rotation *= Rotation2::new(0.005 * rotation_strength);
+        }
+        self.pos += self.dimensions / 2.; // to bring the car back to where it should be
+
+        // friction
+        let mut local_velocity = self.rotation.inverse() * self.velocity;
+
+        let vertical_friction = 0.02;
+        local_velocity.y -= self.wheel_speed;
+
+        self.wheel_speed *= 0.98 - vertical_friction;
+        local_velocity.y *= 1. - vertical_friction;
+
+        let horizontal_friction = 0.05;
+        local_velocity.x *= 1.0 - horizontal_friction;
+
+        self.velocity = self.rotation * local_velocity;
+        self.pos += self.velocity;
     }
 }
 
@@ -137,60 +190,27 @@ impl Scene for Level {
 
         let key_state = events.keyboard_state();
 
-        let mut accelerating = false;
-        if key_state.is_scancode_pressed(Scancode::W) {
-            self.car.wheel_speed += self.car.acceleration;
-            let max_backwards_speed = -5.;
-            self.car.wheel_speed = self
-                .car
-                .wheel_speed
-                .clamp(max_backwards_speed, self.car.max_speed);
-            accelerating = true;
+        let pedal = if key_state.is_scancode_pressed(Scancode::W) {
+            CarPedal::Forward
         } else if key_state.is_scancode_pressed(Scancode::S) {
-            // only gonna implement brake for now, but will also need to detect when to go into
-            // reverse some time
-            // let brake_force = 0.5;
-            // self.car.velocity += -self.car.velocity.normalize() * brake_force;
-            self.car.wheel_speed *= 0.5;
-            if self.car.wheel_speed < 0.1 {
-                self.car.wheel_speed = 0.;
-            }
-        }
-        self.car.pos -= self.car.dimensions / 2.; // to center the rotation
-        let rotation_strength = (self.car.rotation * self.car.velocity).magnitude().abs();
-        if key_state.is_scancode_pressed(Scancode::A) {
-            self.car.rotation *= Rotation2::new(-0.005 * rotation_strength);
-        }
-        if key_state.is_scancode_pressed(Scancode::D) {
-            self.car.rotation *= Rotation2::new(0.005 * rotation_strength);
-        }
-        self.car.pos += self.car.dimensions / 2.; // to bring the car back to where it should be
+            CarPedal::Backward
+        } else {
+            CarPedal::None
+        };
+        let steering = if key_state.is_scancode_pressed(Scancode::A)
+            && !key_state.is_scancode_pressed(Scancode::D)
+        {
+            CarSteering::Left
+        } else if key_state.is_scancode_pressed(Scancode::D)
+            && !key_state.is_scancode_pressed(Scancode::A)
+        {
+            CarSteering::Right
+        } else {
+            CarSteering::None
+        };
 
-        // friction
-        let mut local_velocity = self.car.rotation.inverse() * self.car.velocity;
-
-        let vertical_friction = 0.02;
-        local_velocity.y -= self.car.wheel_speed;
-
-        if !accelerating {
-            self.car.wheel_speed *= 0.98 - vertical_friction;
-        }
-        local_velocity.y *= 1. - vertical_friction;
-
-        let horizontal_friction = 0.05;
-        local_velocity.x *= 1.0 - horizontal_friction;
-
-        self.car.velocity = self.car.rotation * local_velocity;
-        self.car.pos += self.car.velocity;
-
-        // CAMERA
-
-        self.camera.pos = self
-            .camera
-            .pos
-            .coords
-            .lerp(&self.car.center().coords, 0.2)
-            .into();
+        self.car.update(pedal, steering);
+        self.camera.update(&self.car);
 
         Ok(None)
     }
